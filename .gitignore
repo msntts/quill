@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+out/
+release/
+*.tsbuildinfo
+
+# Databases (real data lives under app.getPath('userData'); never in the repo)
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+*.db-journal
+*-wal
+*-shm
+*-journal
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Environment / secrets
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db

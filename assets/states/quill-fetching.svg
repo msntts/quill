@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-label="封筒をくわえて駆けてくる取得中の姿">
+<g stroke="#9EA3AC" stroke-width="4" stroke-linecap="round"><line x1="2" y1="82" x2="14" y2="82"></line><line x1="4" y1="94" x2="18" y2="94"></line><line x1="2" y1="106" x2="12" y2="106"></line></g>
+<path d="M56 66 C 80 66, 92 86, 91 96 C 90 110, 76 116, 56 116 C 36 116, 22 110, 21 96 C 20 86, 32 66, 56 66 Z" fill="#B9BEC6" stroke="#2F3138" stroke-width="4"></path>
+<g stroke-linecap="round"><path d="M42 42 L 16 30" stroke="#5C616B" stroke-width="4"></path><path d="M16 30 L 10 27" stroke="#1E1F24" stroke-width="5"></path><path d="M40 50 L 12 46" stroke="#5C616B" stroke-width="4"></path><path d="M12 46 L 6 45" stroke="#1E1F24" stroke-width="5"></path></g>
+<circle cx="58" cy="48" r="22" fill="#D7DBE1" stroke="#2F3138" stroke-width="4"></circle>
+<path d="M56 48 C 56 38, 74 36, 77 46 C 79 54, 72 58, 64 58 C 59 58, 56 54, 56 48 Z" fill="#F08A3C"></path>
+<circle cx="67" cy="46" r="4" fill="#3A2418"></circle>
+<path d="M78 50 C 88 48, 92 54, 90 60 C 87 56, 82 55, 78 56 Z" fill="#6F737C"></path>
+<rect x="84" y="54" width="26" height="17" rx="2" fill="#FFFFFF" stroke="#2C3E64" stroke-width="3"></rect>
+<path d="M84 55 L 97 64 L 110 55" fill="none" stroke="#2C3E64" stroke-width="2.5" stroke-linejoin="round"></path>
+</svg>
