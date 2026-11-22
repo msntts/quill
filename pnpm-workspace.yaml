@@ -1,0 +1,23 @@
+# Supply-chain hardening. See https://pnpm.io/supply-chain-security
+
+# Do not resolve versions published less than 7 days ago (minutes).
+# Most malicious releases are found and pulled within that window.
+minimumReleaseAge: 10080
+
+# Refuse a version whose publishing trust (trusted publisher / provenance)
+# is weaker than an earlier release of the same package.
+trustPolicy: no-downgrade
+
+# Transitive dependencies may not come from git repos or tarball URLs.
+blockExoticSubdeps: true
+
+# Fail the install when a dependency has a build script not listed below.
+strictDepBuilds: true
+
+# Only listed packages may run build scripts. better-sqlite3 ships prebuilt
+# Node-API binaries, so its build is denied (docs/spike/1b-sqlite.md).
+allowBuilds:
+  better-sqlite3: false
+
+# Save exact versions (no ^ / ~) when adding dependencies.
+savePrefix: ''

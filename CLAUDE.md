@@ -43,6 +43,7 @@ QUILL は、Gmail と Slack の通知を見張り、**人の確認が必要な�
 - Electron + TypeScript（main / preload / renderer を分離。`contextIsolation: true`、`nodeIntegration: false`）
 - SQLite：`better-sqlite3`。ビルド済みバイナリ（Node-API）を使うので、Electron 向けの作り直し（`@electron/rebuild`）は不要。pnpm では `pnpm-workspace.yaml` の `allowBuilds` に `better-sqlite3: false` を書く。Windows は確認済み、Mac は採用前に確認する（`docs/spike/1b-sqlite.md`）
 - パッケージマネージャー：pnpm（npm / yarn は使わない）
+- 依存のサプライチェーン対策は `pnpm-workspace.yaml` に置く（公開から7日未満の版は入れない、発行元の信頼度が下がった版は入れない、git / URL の間接依存は禁止、ビルド処理は `allowBuilds` に書いたものだけ、版は `^` なしで固定）。`minimumReleaseAgeExclude` や `trustPolicyExclude` で例外を作るとき、`allowBuilds` に `true` を足すときは、作者に相談する
 - テスト：Vitest
 - スキーマ検証：zod
 - 仕様管理：OpenSpec

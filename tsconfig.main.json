@@ -3,11 +3,21 @@
   "compilerOptions": {
     "module": "nodenext",
     "moduleResolution": "nodenext",
-    "lib": ["ES2023"],
-    "types": ["node"],
+    "lib": [
+      "ES2023"
+    ],
+    "types": [
+      "node"
+    ],
     "rootDir": "src",
     "outDir": "dist"
   },
-  "include": ["src/main/**/*.ts", "src/preload/**/*.ts"],
-  "exclude": ["src/**/*.test.ts"]
+  "include": [
+    "src/main/**/*.ts",
+    "src/preload/**/*.ts"
+  ],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/__fixtures__/**"
+  ]
 }
