@@ -14,7 +14,25 @@ const WRITE_TOOLS = [
   'unmark_thread_spam', 'untrash_message', 'untrash_thread', 'update_draft', 'update_label', 'update_message_labels',
 ].map((tool) => GMAIL + tool);
 
-export const MAX_TURNS = 40;
+export const MAX_TURNS = 60;
+
+/** Hook settings file, written into claude's working folder (design.md D12). Relative, so it is cmd.exe-safe. */
+export const GMAIL_SETTINGS_FILE = 'gmail-settings.json';
+
+export interface GmailHookSettings {
+  hooks: { PreToolUse: { matcher: string; hooks: { type: 'command'; command: string }[] }[] };
+}
+
+/** Settings that run the Gmail PreToolUse hook script with node. */
+export function buildGmailHookSettings(hookScriptPath: string): GmailHookSettings {
+  // claude runs hook commands through a shell, where forward slashes work on every OS.
+  const script = hookScriptPath.replaceAll('\\', '/');
+  return {
+    hooks: {
+      PreToolUse: [{ matcher: READ_TOOLS.join('|'), hooks: [{ type: 'command', command: `node "${script}"` }] }],
+    },
+  };
+}
 
 /** Arguments for the Gmail fetch run. The prompt goes on stdin. */
 export function buildGmailArgs(): string[] {
@@ -25,6 +43,8 @@ export function buildGmailArgs(): string[] {
     '--verbose',
     '--no-session-persistence',
     '--max-turns', String(MAX_TURNS),
+    '--settings', GMAIL_SETTINGS_FILE,
+    '--include-hook-events',
     '--allowedTools', ...READ_TOOLS,
     '--disallowedTools', ...WRITE_TOOLS,
   ];

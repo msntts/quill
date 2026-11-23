@@ -53,13 +53,17 @@ describe('gmail tool result schemas', () => {
     expect(result).toEqual({ ok: true, data: { threads: [] } });
   });
 
-  it('reads thread ids and the next page token from a search result', () => {
+  it('reads thread ids and the count estimate from a search result', () => {
     const result = parseToolJson(
-      JSON.stringify({ resultCountEstimate: '3', threads: [{ id: 't-1' }, { id: 't-2' }], nextPageToken: 'p2' }),
+      JSON.stringify({ resultCountEstimate: '3', threads: [{ id: 't-1' }, { id: 't-2' }] }),
       searchThreadsResultSchema,
     );
 
-    expect(result).toEqual({ ok: true, data: { threads: [{ id: 't-1' }, { id: 't-2' }], nextPageToken: 'p2' } });
+    expect(result).toEqual({ ok: true, data: { threads: [{ id: 't-1' }, { id: 't-2' }], resultCountEstimate: '3' } });
+  });
+
+  it('rejects a non-numeric count estimate', () => {
+    expect(parseToolJson(JSON.stringify({ resultCountEstimate: 'many', threads: [] }), searchThreadsResultSchema)).toMatchObject({ ok: false });
   });
 
   it('never copies received values into error issues', () => {

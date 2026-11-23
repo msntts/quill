@@ -1,6 +1,7 @@
 // Builds fake stream-json output of a Gmail fetch run. All values are made up.
 import {
   assistantTextLine,
+  hookResponseLine,
   initLine,
   rawToolResultLine,
   resultLine,
@@ -20,9 +21,17 @@ export interface FakeMessage {
   plaintextBody?: string;
 }
 
+/**
+ * What the PreToolUse hook did with a call: by default it pins the arguments as the
+ * real hook does; 'missing' leaves no hook record; an object overrides the pinned values.
+ */
+export type FakeHook = 'missing' | Record<string, unknown>;
+
 export type StreamStep =
-  | { search: { query: string; threads: string[]; pageToken?: string; nextPageToken?: string; raw?: string } }
-  | { getThread: { threadId: string; messageFormat?: string; messages: FakeMessage[]; raw?: string } };
+  // estimate: resultCountEstimate; defaults to the thread count, null leaves it out.
+  // pageSize is what the model asked for (the hook pins it to 50).
+  | { search: { query: string; threads: string[]; estimate?: string | null; pageSize?: number; hook?: FakeHook; raw?: string } }
+  | { getThread: { threadId: string; messageFormat?: string; messages: FakeMessage[]; hook?: FakeHook; raw?: string } };
 
 export function message(id: string, overrides: Partial<FakeMessage> = {}): FakeMessage {
   return {
@@ -37,19 +46,29 @@ export function message(id: string, overrides: Partial<FakeMessage> = {}): FakeM
   };
 }
 
+function hookLines(toolName: string, input: Record<string, unknown>, pinned: Record<string, unknown>, hook: FakeHook | undefined): string[] {
+  if (hook === 'missing') return [];
+  const updatedInput = { ...input, ...pinned, ...hook };
+  return [hookResponseLine('PreToolUse', toolName, JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput } }))];
+}
+
 /** A run as the spike observed it: ToolSearch first, then the Gmail calls, then the result. */
 export function gmailStream(steps: StreamStep[], finalText = 'Read the threads.'): string[] {
   const lines = [initLine(), toolUseLine('tu-ts', 'ToolSearch', { query: 'select:gmail' }), toolSearchResultLine('tu-ts', [GMAIL_SEARCH_THREADS, GMAIL_GET_THREAD])];
   steps.forEach((step, i) => {
     const id = `tu-${i}`;
     if ('search' in step) {
-      const { query, threads, pageToken, nextPageToken, raw } = step.search;
-      lines.push(toolUseLine(id, GMAIL_SEARCH_THREADS, { query, view: 'THREAD_VIEW_IDS_ONLY', pageSize: 50, ...(pageToken ? { pageToken } : {}) }));
-      const payload = threads.length === 0 && !nextPageToken ? {} : { threads: threads.map((t) => ({ id: t })), ...(nextPageToken ? { nextPageToken } : {}) };
+      const { query, threads, estimate = String(threads.length), pageSize = 50, hook, raw } = step.search;
+      const input = { query, view: 'THREAD_VIEW_IDS_ONLY', pageSize };
+      lines.push(toolUseLine(id, GMAIL_SEARCH_THREADS, input), ...hookLines(GMAIL_SEARCH_THREADS, input, { pageSize: 50 }, hook));
+      // An empty search comes back as {} (observed).
+      const payload =
+        threads.length === 0 ? {} : { ...(estimate === null ? {} : { resultCountEstimate: estimate }), threads: threads.map((t) => ({ id: t })) };
       lines.push(raw === undefined ? toolResultLine(id, payload) : rawToolResultLine(id, raw));
     } else {
-      const { threadId, messageFormat, messages, raw } = step.getThread;
-      lines.push(toolUseLine(id, GMAIL_GET_THREAD, { threadId, ...(messageFormat ? { messageFormat } : {}) }));
+      const { threadId, messageFormat, messages, hook, raw } = step.getThread;
+      const input = { threadId, ...(messageFormat ? { messageFormat } : {}) };
+      lines.push(toolUseLine(id, GMAIL_GET_THREAD, input), ...hookLines(GMAIL_GET_THREAD, input, { messageFormat: 'PLAIN_TEXT' }, hook));
       lines.push(raw === undefined ? toolResultLine(id, { id: threadId, messages: messages.map((m) => ({ threadId, ...m })) }) : rawToolResultLine(id, raw));
     }
   });

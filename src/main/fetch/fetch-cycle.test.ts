@@ -61,6 +61,76 @@ describe('runFetchCycle', () => {
     expect(store.listMessages('gmail').map((m) => m.externalId)).toEqual(['late']);
   });
 
+  describe('slices', () => {
+    it('FC-19 区切りごとに保存する', async () => {
+      const saved: string[][] = [];
+      const spy = Object.assign(Object.create(store), {
+        saveBatch: (src: string, messages: { externalId: string }[], options: { cursorAt: number; fetchedAt: number }) => {
+          saved.push(messages.map((m) => m.externalId));
+          return store.saveBatch(src, messages as never, options);
+        },
+      });
+      const source = new FakeSource(
+        'gmail',
+        FakeSource.ok([inboxMessage('a', CURSOR + MINUTE)]),
+        FakeSource.ok([inboxMessage('b', CURSOR + 2 * MINUTE)]),
+        FakeSource.ok([inboxMessage('c', CURSOR + 3 * MINUTE)]),
+      ).withSlices(3);
+
+      const result = await runFetchCycle({ source, store: spy, log: { append: (e) => logged.push(e) }, now: () => S, onEvent: (e) => events.push(e) });
+
+      expect(source.fetchedSlices).toEqual(['slice-1', 'slice-2', 'slice-3']);
+      expect(saved).toEqual([['a'], ['b'], ['c']]);
+      expect(result).toEqual({ ok: true, newCount: 3 });
+      expect(store.getCursor('gmail')).toBe(S);
+      expect(events).toEqual([{ type: 'fetch-started' }, { type: 'fetch-succeeded', newCount: 3 }]);
+    });
+
+    it('FC-20 途中の区切りで失敗する (GS-22)', async () => {
+      const source = new FakeSource(
+        'gmail',
+        FakeSource.ok([inboxMessage('a', CURSOR + MINUTE)]),
+        FakeSource.failed({ kind: 'cli-timeout' }),
+        FakeSource.ok([inboxMessage('c', CURSOR + 3 * MINUTE)]),
+      ).withSlices(3);
+
+      const result = await run(source);
+
+      expect(result).toEqual({ ok: false });
+      expect(source.fetchedSlices).toEqual(['slice-1', 'slice-2']);
+      expect(store.listMessages('gmail').map((m) => m.externalId)).toEqual(['a']);
+      expect(store.getCursor('gmail')).toBe(source.slices[0]!.endsAt);
+      expect(events).toEqual([{ type: 'fetch-started' }, { type: 'fetch-failed' }]);
+    });
+
+    it('FC-10 最初の区切りで失敗したらカーソルを進めない', async () => {
+      const source = new FakeSource('gmail', FakeSource.failed({ kind: 'cli-exit' }), FakeSource.ok([])).withSlices(3);
+
+      await run(source);
+
+      expect(source.fetchedSlices).toEqual(['slice-1']);
+      expect(store.getCursor('gmail')).toBe(CURSOR);
+    });
+
+    it('filters every slice by the same window start', async () => {
+      const source = new FakeSource(
+        'gmail',
+        FakeSource.ok([inboxMessage('old', CURSOR - 11 * MINUTE)]),
+        FakeSource.ok([inboxMessage('new', CURSOR + MINUTE)]),
+      ).withSlices(2);
+
+      await run(source);
+
+      expect(store.listMessages('gmail').map((m) => m.externalId)).toEqual(['new']);
+    });
+
+    it('FC-21 区切りごとに記録する', async () => {
+      await run(new FakeSource('gmail', FakeSource.ok([])).withSlices(3));
+
+      expect(logged.map((e) => e.type === 'fetch' && e.slice)).toEqual(['slice-1', 'slice-2', 'slice-3']);
+    });
+  });
+
   it('reports started and succeeded events with the new message count', async () => {
     const result = await run(new FakeSource('gmail', FakeSource.ok([inboxMessage('m-1', CURSOR + MINUTE)])));
 
@@ -135,6 +205,7 @@ describe('runFetchCycle', () => {
           durationMs: FAKE_STATS.durationMs,
           numTurns: FAKE_STATS.numTurns,
           usage: FAKE_STATS.usage,
+          slice: 'slice-1',
           outcome: 'success',
           fetchedCount: 2,
           savedCount: 1,
@@ -154,6 +225,7 @@ describe('runFetchCycle', () => {
           durationMs: FAKE_STATS.durationMs,
           numTurns: FAKE_STATS.numTurns,
           usage: FAKE_STATS.usage,
+          slice: 'slice-1',
           outcome: 'failure',
           failureKind: 'tool-result-invalid',
           issues,
@@ -192,7 +264,17 @@ describe('runFetchCycle', () => {
       });
 
       expect(logged).toEqual([
-        { type: 'fetch', source: 'gmail', startedAt: S, durationMs: 2_000, numTurns: null, usage: null, outcome: 'failure', failureKind: 'source-threw' },
+        {
+          type: 'fetch',
+          source: 'gmail',
+          startedAt: S,
+          durationMs: 2_000,
+          numTurns: null,
+          usage: null,
+          slice: 'slice-1',
+          outcome: 'failure',
+          failureKind: 'source-threw',
+        },
       ]);
     });
   });

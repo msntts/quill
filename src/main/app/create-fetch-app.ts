@@ -1,10 +1,11 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { ClaudeRunner } from '../claude/claude-runner';
 import { runFetchCycle } from '../fetch/fetch-cycle';
 import { DEFAULT_INTERVAL_MS, startScheduler } from '../fetch/scheduler';
 import { SqliteInboxStore } from '../inbox/sqlite-inbox-store';
 import { JsonlCallLog } from '../log/jsonl-call-log';
+import { buildGmailHookSettings, GMAIL_SETTINGS_FILE } from '../sources/gmail/gmail-args';
 import { GmailSource } from '../sources/gmail/gmail-source';
 import { nextQuillState, type QuillState } from '../status/quill-status';
 
@@ -16,7 +17,6 @@ export interface FetchAppOptions {
   runner: ClaudeRunner;
   forward: (state: QuillState) => void;
   now?: () => number;
-  timeZone?: string;
   intervalMs?: number;
 }
 
@@ -29,12 +29,14 @@ export function createFetchApp(options: FetchAppOptions): FetchApp {
   const now = options.now ?? Date.now;
   const claudeWorkDir = path.join(options.userDataDir, 'claude-work');
   mkdirSync(claudeWorkDir, { recursive: true });
+  // claude reads it by relative path from its working folder (design.md D12).
+  const hookScript = path.join(__dirname, '..', 'sources', 'gmail', 'gmail-hook-main.js');
+  writeFileSync(path.join(claudeWorkDir, GMAIL_SETTINGS_FILE), JSON.stringify(buildGmailHookSettings(hookScript), null, 2), 'utf8');
 
   const store = SqliteInboxStore.open(path.join(options.userDataDir, 'quill.db'));
   const log = new JsonlCallLog(path.join(options.userDataDir, 'logs', 'calls.jsonl'));
   const source = new GmailSource(options.runner, {
     cwd: claudeWorkDir,
-    timeZone: options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
     timeoutMs: DEFAULT_CLAUDE_TIMEOUT_MS,
   });
 

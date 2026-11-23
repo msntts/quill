@@ -69,3 +69,19 @@ export function resultLine(overrides: Record<string, unknown> = {}): string {
     ...overrides,
   });
 }
+
+/** A hook's response as `--include-hook-events` reports it (shape observed 2026-11-23). */
+export function hookResponseLine(hookEvent: string, toolName: string, output: string, outcome = 'success'): string {
+  return JSON.stringify({
+    type: 'system',
+    subtype: 'hook_response',
+    hook_id: `hook-${toolName}`,
+    hook_name: `${hookEvent}:${toolName}`,
+    hook_event: hookEvent,
+    output,
+    stdout: output,
+    stderr: '',
+    exit_code: outcome === 'success' ? 0 : 1,
+    outcome,
+  });
+}

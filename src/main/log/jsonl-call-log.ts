@@ -20,6 +20,7 @@ function toRecord(entry: CallLogEntry): Record<string, unknown> {
       cacheCreationInputTokens: entry.usage.cacheCreationInputTokens,
       cacheReadInputTokens: entry.usage.cacheReadInputTokens,
     },
+    slice: entry.slice,
     outcome: entry.outcome,
   };
   if (entry.fetchedCount !== undefined) record['fetchedCount'] = entry.fetchedCount;

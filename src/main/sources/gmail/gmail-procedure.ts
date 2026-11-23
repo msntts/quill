@@ -1,21 +1,19 @@
 import type { ParsedStream } from '../../claude/stream-json';
 import type { FetchFailure } from '../message-source';
 import { GMAIL_GET_THREAD, GMAIL_SEARCH_THREADS } from './gmail-args';
+import { resolveGmailCalls } from './gmail-calls';
 import { SEARCH_PAGE_SIZE } from './gmail-query';
 import { parseToolJson, searchThreadsResultSchema } from './gmail-schemas';
 
 export type ProcedureReason =
   | 'search-missing'
-  | 'next-page-missing'
-  | 'page-full-without-token'
+  | 'hook-missing'
+  | 'page-size-mismatch'
+  | 'result-truncated'
   | 'thread-unread'
   | 'thread-read-without-body';
 
 export type ProcedureCheck = { ok: true } | { ok: false; failure: FetchFailure };
-
-export function inputOf(input: unknown): Record<string, unknown> {
-  return typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {};
-}
 
 /** get_thread formats whose results include the message body. */
 export function isBodyFormat(messageFormat: unknown): boolean {
@@ -25,34 +23,41 @@ export function isBodyFormat(messageFormat: unknown): boolean {
 const incomplete = (reason: ProcedureReason): ProcedureCheck => ({ ok: false, failure: { kind: 'procedure-incomplete', reason } });
 
 /**
+ * A full page may hide more threads, and the connector cannot page. Below the page
+ * size the estimate is ignored: it can run high, and failing on it would stall the cursor.
+ */
+function isTruncated(threadCount: number, estimate: string | undefined): boolean {
+  return threadCount >= SEARCH_PAGE_SIZE && (estimate === undefined || Number(estimate) > threadCount);
+}
+
+/**
  * Checks that the model followed the prescribed steps for `query`: searched with it,
- * followed every page, and read every found thread with bodies. Extra searches and
- * reads are allowed.
+ * every Gmail call went through the hook, the search ran with full pages and was not
+ * cut off, and every found thread was read with bodies. Judged on the arguments Gmail
+ * got after the hook. Extra searches and reads are allowed.
  */
 export function verifyGmailProcedure(parsed: ParsedStream, query: string): ProcedureCheck {
-  const searches = parsed.toolCalls.filter((c) => c.name === GMAIL_SEARCH_THREADS && inputOf(c.input)['query'] === query);
+  const calls = resolveGmailCalls(parsed);
+  const searches = calls.filter((c) => c.name === GMAIL_SEARCH_THREADS && c.input['query'] === query);
   if (searches.length === 0) return incomplete('search-missing');
+  if (calls.some((c) => !c.pinned)) return incomplete('hook-missing');
+  // Fewer threads than a page means "all of them" only when the page held 50.
+  if (searches.some((c) => c.input['pageSize'] !== SEARCH_PAGE_SIZE)) return incomplete('page-size-mismatch');
 
   const threadIds = new Set<string>();
-  const nextTokens: string[] = [];
-  const usedTokens = new Set<unknown>(searches.map((c) => inputOf(c.input)['pageToken']));
   for (const call of searches) {
     const result = parseToolJson(parsed.toolResults.get(call.id)?.text ?? null, searchThreadsResultSchema);
     if (!result.ok) return { ok: false, failure: { kind: 'tool-result-invalid', issues: result.error.issues } };
+    if (isTruncated(result.data.threads.length, result.data.resultCountEstimate)) return incomplete('result-truncated');
     for (const t of result.data.threads) threadIds.add(t.id);
-    if (result.data.nextPageToken !== undefined) nextTokens.push(result.data.nextPageToken);
-    // The next-page field name is unconfirmed (design OQ1): treat a full page without it as incomplete.
-    else if (result.data.threads.length >= SEARCH_PAGE_SIZE) return incomplete('page-full-without-token');
   }
-  if (nextTokens.some((t) => !usedTokens.has(t))) return incomplete('next-page-missing');
 
   const readWithBody = new Set<unknown>();
   const readAtAll = new Set<unknown>();
-  for (const call of parsed.toolCalls) {
+  for (const call of calls) {
     if (call.name !== GMAIL_GET_THREAD) continue;
-    const input = inputOf(call.input);
-    readAtAll.add(input['threadId']);
-    if (isBodyFormat(input['messageFormat'])) readWithBody.add(input['threadId']);
+    readAtAll.add(call.input['threadId']);
+    if (isBodyFormat(call.input['messageFormat'])) readWithBody.add(call.input['threadId']);
   }
   for (const id of threadIds) {
     if (!readAtAll.has(id)) return incomplete('thread-unread');

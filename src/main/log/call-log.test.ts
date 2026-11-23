@@ -22,6 +22,7 @@ describe('JsonlCallLog', () => {
     durationMs: 2,
     numTurns: 3,
     usage: { inputTokens: 4, outputTokens: 5, cacheCreationInputTokens: 6, cacheReadInputTokens: 7 },
+    slice: '2026-11-20',
     outcome: 'success',
     fetchedCount: 8,
     savedCount: 9,

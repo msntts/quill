@@ -12,7 +12,7 @@ export type CycleFailureKind =
   | 'source-threw'
   | 'store-failed';
 
-/** One fetch (one Claude CLI call). Only counts, ids, times and enumerated kinds. */
+/** One slice of a fetch (one Claude CLI call). Only counts, ids, times and enumerated kinds. */
 export interface FetchLogEntry {
   type: 'fetch';
   source: string;
@@ -20,6 +20,8 @@ export interface FetchLogEntry {
   durationMs: number;
   numTurns: number | null;
   usage: TokenUsage | null;
+  /** The slice's label (Gmail: `YYYY-MM-DD`). */
+  slice: string;
   outcome: 'success' | 'failure';
   fetchedCount?: number;
   savedCount?: number;

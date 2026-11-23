@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { parseStreamJson } from '../../claude/stream-json';
-import { gmailStream, message, type StreamStep } from './__fixtures__/gmail-stream';
+import { gmailStream, message, type FakeHook, type StreamStep } from './__fixtures__/gmail-stream';
 import { verifyGmailProcedure } from './gmail-procedure';
 
-const QUERY = 'in:inbox category:primary after:2026/11/21';
+const QUERY = 'in:inbox after:2026/11/21 before:2026/11/22';
 
 function verify(steps: StreamStep[]) {
   return verifyGmailProcedure(parseStreamJson(gmailStream(steps)), QUERY);
 }
 
-const read = (threadId: string, messageFormat = 'PLAIN_TEXT'): StreamStep => ({
-  getThread: { threadId, messageFormat, messages: [message(`${threadId}-m`, { threadId })] },
+const read = (threadId: string, messageFormat = 'PLAIN_TEXT', hook?: FakeHook): StreamStep => ({
+  getThread: { threadId, messageFormat, messages: [message(`${threadId}-m`, { threadId })], ...(hook ? { hook } : {}) },
 });
 
 describe('verifyGmailProcedure', () => {
@@ -33,44 +33,76 @@ describe('verifyGmailProcedure', () => {
   });
 
   it('GS-13 本文なしで読み取ったスレッドがある', () => {
-    expect(verify([{ search: { query: QUERY, threads: ['t-1'] } }, read('t-1', 'METADATA_ONLY')])).toEqual({
+    expect(verify([{ search: { query: QUERY, threads: ['t-1'] } }, read('t-1', 'METADATA_ONLY', { messageFormat: 'METADATA_ONLY' })])).toEqual({
       ok: false,
       failure: { kind: 'procedure-incomplete', reason: 'thread-read-without-body' },
     });
   });
 
-  it('GS-14 続きのページを読んでいない', () => {
-    expect(verify([{ search: { query: QUERY, threads: ['t-1'], nextPageToken: 'p2' } }, read('t-1')])).toEqual({
+  it('GS-28 judges the read format after the hook rewrote it', () => {
+    expect(verify([{ search: { query: QUERY, threads: ['t-1'] } }, read('t-1', 'METADATA_ONLY')])).toEqual({ ok: true });
+  });
+
+  it('GS-30 書き換えの記録がない (検索)', () => {
+    expect(verify([{ search: { query: QUERY, threads: ['t-1'], hook: 'missing' } }, read('t-1')])).toEqual({
       ok: false,
-      failure: { kind: 'procedure-incomplete', reason: 'next-page-missing' },
+      failure: { kind: 'procedure-incomplete', reason: 'hook-missing' },
     });
   });
 
-  it('GS-14 続きのページを読んでいる場合は通る', () => {
-    expect(
-      verify([
-        { search: { query: QUERY, threads: ['t-1'], nextPageToken: 'p2' } },
-        { search: { query: QUERY, threads: ['t-2'], pageToken: 'p2' } },
-        read('t-1'),
-        read('t-2'),
-      ]),
-    ).toEqual({ ok: true });
+  it('GS-30 書き換えの記録がない (スレッドの読み取り)', () => {
+    expect(verify([{ search: { query: QUERY, threads: ['t-1'] } }, read('t-1', 'PLAIN_TEXT', 'missing')])).toEqual({
+      ok: false,
+      failure: { kind: 'procedure-incomplete', reason: 'hook-missing' },
+    });
   });
 
-  it('GS-14 50件ちょうどで次のページの印がないときは失敗にする', () => {
-    const threads = Array.from({ length: 50 }, (_, i) => `t-${i}`);
+  it('GS-30 a failed hook counts as no record', () => {
+    const lines = gmailStream([{ search: { query: QUERY, threads: [] } }]).map((l) => l.replace('"outcome":"success"', '"outcome":"error"'));
 
-    expect(verify([{ search: { query: QUERY, threads } }, ...threads.map((t) => read(t))])).toEqual({
+    expect(verifyGmailProcedure(parseStreamJson(lines), QUERY)).toEqual({
       ok: false,
-      failure: { kind: 'procedure-incomplete', reason: 'page-full-without-token' },
+      failure: { kind: 'procedure-incomplete', reason: 'hook-missing' },
     });
+  });
+
+  it('GS-31 50件以外の件数で検索された', () => {
+    expect(verify([{ search: { query: QUERY, threads: ['t-1'], hook: { pageSize: 20 } } }, read('t-1')])).toEqual({
+      ok: false,
+      failure: { kind: 'procedure-incomplete', reason: 'page-size-mismatch' },
+    });
+  });
+
+  it('GS-27 judges the page size after the hook rewrote it', () => {
+    expect(verify([{ search: { query: QUERY, threads: ['t-1'], pageSize: 5 } }, read('t-1')])).toEqual({ ok: true });
+  });
+
+  const fifty = Array.from({ length: 50 }, (_, i) => `t-${i}`);
+  const truncated = { ok: false, failure: { kind: 'procedure-incomplete', reason: 'result-truncated' } };
+
+  it('GS-23 推定件数が返ってきた数より多い', () => {
+    expect(verify([{ search: { query: QUERY, threads: fifty, estimate: '715' } }, ...fifty.map((t) => read(t))])).toEqual(truncated);
+  });
+
+  it('GS-24 推定件数がなく50件ちょうど返ってきた', () => {
+    expect(verify([{ search: { query: QUERY, threads: fifty, estimate: null } }, ...fifty.map((t) => read(t))])).toEqual(truncated);
+  });
+
+  it('GS-25 50件ちょうどで推定件数も50件', () => {
+    expect(verify([{ search: { query: QUERY, threads: fifty, estimate: '50' } }, ...fifty.map((t) => read(t))])).toEqual({ ok: true });
+  });
+
+  it('GS-26 50件より少なく推定件数がそれより多い', () => {
+    const twelve = fifty.slice(0, 12);
+
+    expect(verify([{ search: { query: QUERY, threads: twelve, estimate: '14' } }, ...twelve.map((t) => read(t))])).toEqual({ ok: true });
   });
 
   it('GS-15 指定外の検索が追加で行われた', () => {
     expect(
       verify([
         { search: { query: QUERY, threads: ['t-1'] } },
-        { search: { query: 'in:inbox newer_than:3d', threads: ['t-1', 't-old'] } },
+        { search: { query: 'in:inbox newer_than:3d', threads: ['t-1', 't-old'], estimate: '900' } },
         read('t-1'),
         read('t-old', 'METADATA_ONLY'),
       ]),

@@ -7,11 +7,14 @@ import { SqliteInboxStore } from '../inbox/sqlite-inbox-store';
 import { JsonlCallLog } from '../log/jsonl-call-log';
 import { gmailStream, message } from '../sources/gmail/__fixtures__/gmail-stream';
 import { buildGmailQuery } from '../sources/gmail/gmail-query';
+import { planGmailSlices } from '../sources/gmail/gmail-slices';
 import { GmailSource } from '../sources/gmail/gmail-source';
 import { runFetchCycle } from './fetch-cycle';
 import { computeWindowStart } from './fetch-window';
 
 const NOW = Date.parse('2026-11-22T12:00:00Z');
+// A cursor earlier the same UTC day keeps the fetch to one slice.
+const CURSOR = NOW - 30 * 60_000;
 const MARKERS = ['MARKER-BODY-7f3a', 'MARKER-SUBJECT-91c2', 'marker-sender-55d0@example.com'];
 
 describe('logs never contain message content', () => {
@@ -23,6 +26,7 @@ describe('logs never contain message content', () => {
     dir = mkdtempSync(path.join(os.tmpdir(), 'quill-nolog-'));
     logFile = path.join(dir, 'logs', 'calls.jsonl');
     store = SqliteInboxStore.open(':memory:');
+    store.saveBatch('gmail', [], { cursorAt: CURSOR, fetchedAt: CURSOR });
   });
 
   afterEach(() => {
@@ -31,11 +35,12 @@ describe('logs never contain message content', () => {
   });
 
   async function cycleWith(lines: string[]) {
-    const gmail = new GmailSource(FakeClaudeRunner.exited(lines), { cwd: dir, timeZone: 'UTC', timeoutMs: 60_000 });
+    const gmail = new GmailSource(FakeClaudeRunner.exited(lines), { cwd: dir, timeoutMs: 60_000 });
     return runFetchCycle({ source: gmail, store, log: new JsonlCallLog(logFile), now: () => NOW, onEvent: () => {} });
   }
 
-  const query = buildGmailQuery(computeWindowStart(null, NOW), 'UTC');
+  const [slice] = planGmailSlices(computeWindowStart(CURSOR, NOW), NOW);
+  const query = buildGmailQuery(slice!);
   const marked = message('m-1', {
     internalDate: String(NOW - 60_000),
     plaintextBody: MARKERS[0],

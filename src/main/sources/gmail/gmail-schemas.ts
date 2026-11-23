@@ -15,10 +15,10 @@ export const getThreadResultSchema = z.object({
   messages: z.array(messageSchema),
 });
 
-// An empty object {} means zero matches.
+// An empty object {} means zero matches. There is no next-page field (design.md OQ1).
 export const searchThreadsResultSchema = z.object({
   threads: z.array(z.object({ id: z.string().min(1) })).default([]),
-  nextPageToken: z.string().optional(),
+  resultCountEstimate: z.string().regex(/^\d+$/).optional(),
 });
 
 export type GmailMessage = z.infer<typeof messageSchema>;

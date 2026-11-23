@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGmailArgs } from './gmail-args';
+import { buildGmailArgs, buildGmailHookSettings, GMAIL_SETTINGS_FILE } from './gmail-args';
 
 const G = 'mcp__claude_ai_Gmail__';
 
@@ -46,6 +46,33 @@ describe('buildGmailArgs', () => {
     expect(valuesOf(args, '--model')).toEqual(['haiku']);
     expect(valuesOf(args, '--output-format')).toEqual(['stream-json']);
     expect(args).toContain('--verbose');
-    expect(valuesOf(args, '--max-turns')).toEqual(['40']);
+    expect(valuesOf(args, '--max-turns')).toEqual(['60']);
+  });
+
+  it('GS-29 書き換えの仕組みを付けて起動する', () => {
+    expect(valuesOf(args, '--settings')).toEqual([GMAIL_SETTINGS_FILE]);
+    expect(GMAIL_SETTINGS_FILE).toBe('gmail-settings.json');
+    expect(args).toContain('--include-hook-events');
+  });
+});
+
+describe('buildGmailHookSettings', () => {
+  it('GS-29 runs the hook script with node before the two Gmail read tools', () => {
+    expect(buildGmailHookSettings('C:/app/dist/main/sources/gmail/gmail-hook-main.js')).toEqual({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: `${G}search_threads|${G}get_thread`,
+            hooks: [{ type: 'command', command: 'node "C:/app/dist/main/sources/gmail/gmail-hook-main.js"' }],
+          },
+        ],
+      },
+    });
+  });
+
+  it('uses forward slashes in the command, since claude runs hooks through a shell', () => {
+    const settings = buildGmailHookSettings('C:\\Users\\me\\quill\\gmail-hook-main.js');
+
+    expect(settings.hooks.PreToolUse[0]?.hooks[0]?.command).toBe('node "C:/Users/me/quill/gmail-hook-main.js"');
   });
 });

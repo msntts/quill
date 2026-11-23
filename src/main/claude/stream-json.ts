@@ -27,8 +27,19 @@ export interface RunSummary {
   usage: TokenUsage;
 }
 
+/** A hook's response, reported with `--include-hook-events`. */
+export interface HookResponse {
+  hookEvent: string;
+  /** The part of hook_name after the event, e.g. the tool name for PreToolUse. */
+  toolName: string;
+  outcome: string;
+  /** The hook's stdout. */
+  output: string;
+}
+
 export interface ParsedStream {
   toolCalls: ToolCall[];
+  hookResponses: HookResponse[];
   toolResults: Map<string, ToolResult>;
   finalText: string | null;
   summary: RunSummary | null;
@@ -80,7 +91,7 @@ function toSummary(event: Json): RunSummary {
 }
 
 export function parseStreamJson(lines: readonly string[]): ParsedStream {
-  const parsed: ParsedStream = { toolCalls: [], toolResults: new Map(), finalText: null, summary: null };
+  const parsed: ParsedStream = { toolCalls: [], hookResponses: [], toolResults: new Map(), finalText: null, summary: null };
 
   lines.forEach((line, index) => {
     if (line.trim() === '') return;
@@ -108,6 +119,15 @@ export function parseStreamJson(lines: readonly string[]): ParsedStream {
           });
         }
       }
+    } else if (event['type'] === 'system' && event['subtype'] === 'hook_response') {
+      const hookEvent = typeof event['hook_event'] === 'string' ? event['hook_event'] : '';
+      const hookName = typeof event['hook_name'] === 'string' ? event['hook_name'] : '';
+      parsed.hookResponses.push({
+        hookEvent,
+        toolName: hookName.startsWith(`${hookEvent}:`) ? hookName.slice(hookEvent.length + 1) : '',
+        outcome: typeof event['outcome'] === 'string' ? event['outcome'] : '',
+        output: typeof event['output'] === 'string' ? event['output'] : '',
+      });
     } else if (event['type'] === 'result') {
       parsed.summary = toSummary(event);
       parsed.finalText = typeof event['result'] === 'string' ? event['result'] : null;

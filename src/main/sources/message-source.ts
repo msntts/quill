@@ -29,9 +29,19 @@ export type SourceFetchResult =
   | { ok: true; messages: InboxMessage[]; stats: FetchStats }
   | { ok: false; failure: FetchFailure; stats: FetchStats };
 
+/** One oldest-first piece of a fetch (Gmail: one UTC day). Times are UNIX ms. */
+export interface FetchSlice {
+  /** Short id for logs, e.g. `2026-11-20`. Never message content. */
+  label: string;
+  startsAt: number;
+  endsAt: number;
+}
+
 /** A place messages come from (Gmail now, Slack later). */
 export interface MessageSource {
   readonly name: string;
-  /** Fetches messages that may have arrived at or after windowStart (UNIX ms). */
-  fetch(windowStart: number): Promise<SourceFetchResult>;
+  /** Splits [windowStart, now] into oldest-first slices; each slice is one Claude CLI call. */
+  planSlices(windowStart: number, now: number): FetchSlice[];
+  /** Fetches the messages of one slice. */
+  fetchSlice(slice: FetchSlice): Promise<SourceFetchResult>;
 }

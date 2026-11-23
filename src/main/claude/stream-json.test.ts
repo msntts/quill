@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  hookResponseLine,
   initLine,
   rawToolResultLine,
   resultLine,
@@ -64,5 +65,24 @@ describe('parseStreamJson', () => {
 
   it('fails when a line is not JSON', () => {
     expect(() => parseStreamJson([initLine(), '{broken'])).toThrow(StreamJsonError);
+  });
+
+  it('extracts hook responses with their event, tool, outcome and output', () => {
+    const output = JSON.stringify({ hookSpecificOutput: { updatedInput: { query: 'in:inbox', pageSize: 50 } } });
+    const lines = [
+      initLine(),
+      hookResponseLine('SessionStart', 'startup', ''),
+      toolUseLine('tu-1', 'mcp__claude_ai_Gmail__search_threads', { query: 'in:inbox', pageSize: 5 }),
+      hookResponseLine('PreToolUse', 'mcp__claude_ai_Gmail__search_threads', output),
+      hookResponseLine('PreToolUse', 'mcp__claude_ai_Gmail__get_thread', '', 'error'),
+      JSON.stringify({ type: 'system', subtype: 'hook_started', hook_name: 'PreToolUse:x', hook_event: 'PreToolUse' }),
+      resultLine(),
+    ];
+
+    expect(parseStreamJson(lines).hookResponses).toEqual([
+      { hookEvent: 'SessionStart', toolName: 'startup', outcome: 'success', output: '' },
+      { hookEvent: 'PreToolUse', toolName: 'mcp__claude_ai_Gmail__search_threads', outcome: 'success', output },
+      { hookEvent: 'PreToolUse', toolName: 'mcp__claude_ai_Gmail__get_thread', outcome: 'error', output: '' },
+    ]);
   });
 });

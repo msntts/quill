@@ -4,7 +4,7 @@ import type { ClaudeRunner, ClaudeRunOutcome, ClaudeRunRequest } from '../claude
 export class FakeClaudeRunner implements ClaudeRunner {
   readonly requests: ClaudeRunRequest[] = [];
 
-  constructor(private readonly outcome: ClaudeRunOutcome | (() => Promise<ClaudeRunOutcome>)) {}
+  constructor(private readonly outcome: ClaudeRunOutcome | ((request: ClaudeRunRequest) => Promise<ClaudeRunOutcome>)) {}
 
   static exited(stdoutLines: string[], exitCode = 0): FakeClaudeRunner {
     return new FakeClaudeRunner({ kind: 'exited', exitCode, stdoutLines, durationMs: 1_000 });
@@ -12,6 +12,6 @@ export class FakeClaudeRunner implements ClaudeRunner {
 
   async run(request: ClaudeRunRequest): Promise<ClaudeRunOutcome> {
     this.requests.push(request);
-    return typeof this.outcome === 'function' ? this.outcome() : this.outcome;
+    return typeof this.outcome === 'function' ? this.outcome(request) : this.outcome;
   }
 }

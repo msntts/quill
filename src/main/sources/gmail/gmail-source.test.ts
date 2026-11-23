@@ -5,16 +5,23 @@ import { gmailStream, message } from './__fixtures__/gmail-stream';
 import { buildGmailQuery } from './gmail-query';
 import { GmailSource } from './gmail-source';
 
-const TZ = 'UTC';
-const WINDOW_START = Date.parse('2026-11-22T00:00:00Z');
-const QUERY = buildGmailQuery(WINDOW_START, TZ);
+const SLICE = { label: '2026-11-22', startsAt: Date.parse('2026-11-22T00:00:00Z'), endsAt: Date.parse('2026-11-23T00:00:00Z') };
+const QUERY = buildGmailQuery(SLICE);
 
 function source(lines: string[]) {
   const runner = FakeClaudeRunner.exited(lines);
-  return { runner, gmail: new GmailSource(runner, { cwd: 'work', timeZone: TZ, timeoutMs: 60_000 }) };
+  return { runner, gmail: new GmailSource(runner, { cwd: 'work', timeoutMs: 60_000 }) };
 }
 
 describe('GmailSource', () => {
+  it('plans one slice per UTC day', () => {
+    const { gmail } = source([]);
+
+    const slices = gmail.planSlices(Date.parse('2026-11-21T23:50:00Z'), Date.parse('2026-11-22T00:30:00Z'));
+
+    expect(slices.map((s) => s.label)).toEqual(['2026-11-21', '2026-11-22']);
+  });
+
   it('GS-09 モデルの出力とツールの返り値が違う', async () => {
     const m = message('m-1', { threadId: 't-1', sender: 'alice@example.com', plaintextBody: 'Original body 😀' });
     const lines = gmailStream(
@@ -22,7 +29,7 @@ describe('GmailSource', () => {
       JSON.stringify([{ id: 'm-1', from: 'Alice <alice@example.com>', body: 'Original body' }]),
     );
 
-    const result = await source(lines).gmail.fetch(WINDOW_START);
+    const result = await source(lines).gmail.fetchSlice(SLICE);
 
     expect(result).toMatchObject({ ok: true });
     if (!result.ok) return;
@@ -44,7 +51,7 @@ describe('GmailSource', () => {
       { getThread: { threadId: 't-1', messageFormat: 'PLAIN_TEXT', messages: [message('m-1', { internalDate: '1795255773123' })] } },
     ]);
 
-    const result = await source(lines).gmail.fetch(WINDOW_START);
+    const result = await source(lines).gmail.fetchSlice(SLICE);
 
     expect(result.ok && result.messages[0]?.receivedAt).toBe(1_795_255_773_123);
   });
@@ -55,12 +62,23 @@ describe('GmailSource', () => {
     const lines = gmailStream([
       { search: { query: QUERY, threads: ['t-1'] } },
       { getThread: { threadId: 't-1', messageFormat: 'PLAIN_TEXT', messages: [full] } },
-      { getThread: { threadId: 't-1', messageFormat: 'METADATA_ONLY', messages: [metadataOnly] } },
+      { getThread: { threadId: 't-1', messageFormat: 'METADATA_ONLY', messages: [metadataOnly], hook: { messageFormat: 'METADATA_ONLY' } } },
     ]);
 
-    const result = await source(lines).gmail.fetch(WINDOW_START);
+    const result = await source(lines).gmail.fetchSlice(SLICE);
 
     expect(result.ok && result.messages).toEqual([expect.objectContaining({ externalId: 'm-1', body: 'Body of m-1', subject: 'Subject of m-1' })]);
+  });
+
+  it('GS-28 takes values from a read the model asked as metadata but the hook made body-bearing', async () => {
+    const lines = gmailStream([
+      { search: { query: QUERY, threads: ['t-1'] } },
+      { getThread: { threadId: 't-1', messageFormat: 'METADATA_ONLY', messages: [message('m-1')] } },
+    ]);
+
+    const result = await source(lines).gmail.fetchSlice(SLICE);
+
+    expect(result.ok && result.messages).toEqual([expect.objectContaining({ externalId: 'm-1', body: 'Body of m-1' })]);
   });
 
   it('stores missing sender, subject and body as empty strings', async () => {
@@ -69,7 +87,7 @@ describe('GmailSource', () => {
       { getThread: { threadId: 't-1', messages: [{ id: 'm-1', internalDate: '1700000000000', labelIds: ['INBOX'] }] } },
     ]);
 
-    const result = await source(lines).gmail.fetch(WINDOW_START);
+    const result = await source(lines).gmail.fetchSlice(SLICE);
 
     expect(result.ok && result.messages[0]).toMatchObject({ sender: '', subject: '', body: '' });
   });
@@ -77,7 +95,7 @@ describe('GmailSource', () => {
   it('runs claude with the Gmail args, the prompt on stdin, and the given cwd and timeout', async () => {
     const { runner, gmail } = source(gmailStream([{ search: { query: QUERY, threads: [] } }]));
 
-    await gmail.fetch(WINDOW_START);
+    await gmail.fetchSlice(SLICE);
 
     expect(runner.requests).toHaveLength(1);
     const request = runner.requests[0]!;
@@ -88,7 +106,7 @@ describe('GmailSource', () => {
   });
 
   it('reports run stats from the result line', async () => {
-    const result = await source(gmailStream([{ search: { query: QUERY, threads: [] } }])).gmail.fetch(WINDOW_START);
+    const result = await source(gmailStream([{ search: { query: QUERY, threads: [] } }])).gmail.fetchSlice(SLICE);
 
     expect(result.stats).toEqual({
       durationMs: 1_000,
@@ -99,7 +117,7 @@ describe('GmailSource', () => {
 
   describe('Claude CLI failures', () => {
     async function fetchWith(runner: FakeClaudeRunner) {
-      return new GmailSource(runner, { cwd: 'work', timeZone: TZ, timeoutMs: 60_000 }).fetch(WINDOW_START);
+      return new GmailSource(runner, { cwd: 'work', timeoutMs: 60_000 }).fetchSlice(SLICE);
     }
 
     it('fails with cli-exit on a non-zero exit code', async () => {
@@ -141,11 +159,11 @@ describe('GmailSource', () => {
         { search: { query: QUERY, threads: ['t-1'] } },
         { getThread: { threadId: 't-1', messageFormat: 'PLAIN_TEXT', messages } },
       ]);
-      const result = await source(lines).gmail.fetch(WINDOW_START);
+      const result = await source(lines).gmail.fetchSlice(SLICE);
       return result.ok ? result.messages.map((m) => m.externalId) : result;
     }
 
-    it('GS-01 メインタブのメッセージ', async () => {
+    it('GS-01 受信トレイのメッセージ', async () => {
       expect(await fetchIds(message('primary', { labelIds: ['INBOX', 'CATEGORY_PERSONAL', 'UNREAD'] }), message('no-tabs', { labelIds: ['INBOX'] }))).toEqual([
         'primary',
         'no-tabs',
@@ -159,9 +177,9 @@ describe('GmailSource', () => {
           message('social', { labelIds: ['INBOX', 'CATEGORY_SOCIAL'] }),
           message('updates', { labelIds: ['INBOX', 'CATEGORY_UPDATES'] }),
           message('forums', { labelIds: ['INBOX', 'CATEGORY_FORUMS'] }),
-          message('keep', { labelIds: ['INBOX', 'CATEGORY_PERSONAL'] }),
+          message('primary', { labelIds: ['INBOX', 'CATEGORY_PERSONAL'] }),
         ),
-      ).toEqual(['keep']);
+      ).toEqual(['promo', 'social', 'updates', 'forums', 'primary']);
     });
 
     it('GS-03 受信トレイにないメッセージ', async () => {
@@ -178,7 +196,7 @@ describe('GmailSource', () => {
   it('fails the fetch when the procedure is incomplete', async () => {
     const lines = gmailStream([{ search: { query: QUERY, threads: ['t-1', 't-2'] } }, { getThread: { threadId: 't-1', messages: [message('m-1')] } }]);
 
-    const result = await source(lines).gmail.fetch(WINDOW_START);
+    const result = await source(lines).gmail.fetchSlice(SLICE);
 
     expect(result).toMatchObject({ ok: false, failure: { kind: 'procedure-incomplete', reason: 'thread-unread' } });
   });
@@ -186,7 +204,7 @@ describe('GmailSource', () => {
   it('GS-18 返り値が JSON として読めない (via GmailSource)', async () => {
     const lines = gmailStream([{ search: { query: QUERY, threads: ['t-1'] } }, { getThread: { threadId: 't-1', messages: [], raw: '<html>' } }]);
 
-    const result = await source(lines).gmail.fetch(WINDOW_START);
+    const result = await source(lines).gmail.fetchSlice(SLICE);
 
     expect(result).toMatchObject({ ok: false, failure: { kind: 'tool-result-invalid' } });
   });
