@@ -22,12 +22,17 @@
     "url": "https://github.com/msntts/quill/issues"
   },
   "homepage": "https://github.com/msntts/quill#readme",
-  "devDependencies": {
-    "@fission-ai/openspec": "^2.1.1",
-    "@types/node": "^26.6.6",
-    "electron": "^45.4.1",
-    "typescript": "^7.0.2",
-    "vitest": "^5.1.1"
+  "private": true,
+  "dependencies": {
+    "better-sqlite3": "13.2.0",
+    "zod": "4.6.7"
   },
-  "private": true
+  "devDependencies": {
+    "@fission-ai/openspec": "2.0.0",
+    "@types/better-sqlite3": "9.6.0",
+    "@types/node": "26.6.6",
+    "electron": "45.3.2",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
 }
